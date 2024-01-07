@@ -4,3 +4,5 @@ log/
 **/*.db
 **/*.db-shm
 **/*.db-wal
+base/open5gs/**
+base/open5gs
