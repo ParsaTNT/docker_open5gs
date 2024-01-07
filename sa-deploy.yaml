@@ -223,6 +223,33 @@ services:
     networks:
       default:
         ipv4_address: ${AMF_IP}
+  nef:
+    image: docker_open5gs
+    depends_on:
+      - nrf
+      - scp
+    container_name: nef
+    env_file:
+      - .env
+    environment:
+      - COMPONENT_NAME=nef-1
+    volumes:
+      - ./nef:/mnt/nef
+      - ./log:/open5gs/install/var/log/open5gs
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    expose:
+      - "3868/udp"
+      - "3868/tcp"
+      - "3868/sctp"
+      - "5868/udp"
+      - "5868/tcp"
+      - "5868/sctp"
+      - "7777/tcp"
+      - "9091/tcp"
+    networks:
+      default:
+        ipv4_address: ${NEF_IP}
   pcf:
     image: docker_open5gs
     depends_on:

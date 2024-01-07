@@ -62,6 +62,10 @@ elif [[ "$COMPONENT_NAME" =~ ^(nssf-[[:digit:]]+$) ]]; then
 	echo "Deploying component: '$COMPONENT_NAME'"
 	/mnt/nssf/nssf_init.sh  && \
     cd install/bin && ./open5gs-nssfd
+elif [[ "$COMPONENT_NAME" =~ ^(nef-[[:digit:]]+$) ]]; then
+	echo "Deploying component: '$COMPONENT_NAME'"
+	/mnt/nef/nef_init.sh && sleep 10 && \
+    cd install/bin && ./open5gs-nefd
 elif [[ "$COMPONENT_NAME" =~ ^(pcf-[[:digit:]]+$) ]]; then
 	echo "Deploying component: '$COMPONENT_NAME'"
 	/mnt/pcf/pcf_init.sh && sleep 10 && \
