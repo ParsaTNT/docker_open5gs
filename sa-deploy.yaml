@@ -250,6 +250,32 @@ services:
     networks:
       default:
         ipv4_address: ${NEF_IP}
+  af:
+    image: shkatebi97/erlang-af
+    depends_on:
+      - nef
+    env_file:
+      - .env
+    environment:
+      - COMPONENT_NAME=af-1
+      - ENV=prod
+    volumes:
+      - ./af:/mnt/af
+      - ./log:/open5gs/install/var/log/open5gs
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    # expose:
+    #   - "3868/udp"
+    #   - "3868/tcp"
+    #   - "3868/sctp"
+    #   - "5868/udp"
+    #   - "5868/tcp"
+    #   - "5868/sctp"
+    #   - "7777/tcp"
+    #   - "9091/tcp"
+    networks:
+      default:
+        ipv4_address: ${AF_IP}
   pcf:
     image: docker_open5gs
     depends_on:
