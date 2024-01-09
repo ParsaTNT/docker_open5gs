@@ -250,14 +250,14 @@ services:
     networks:
       default:
         ipv4_address: ${NEF_IP}
-  af:
+  naf:
     image: shkatebi97/erlang-af
     depends_on:
       - nef
     env_file:
       - .env
     environment:
-      - COMPONENT_NAME=af-1
+      - COMPONENT_NAME=naf-1
       - ENV=prod
     volumes:
       - ./af:/mnt/af

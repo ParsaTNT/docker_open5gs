@@ -1,4 +1,5 @@
 logger:
+    level: trace
     file: /open5gs/install/var/log/open5gs/nef.log
 
 sbi:
