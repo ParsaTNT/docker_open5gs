@@ -39,6 +39,7 @@ sed -i 's|NEF_IP|'$NEF_IP'|g' install/etc/open5gs/nef.yaml
 sed -i 's|SCP_IP|'$SCP_IP'|g' install/etc/open5gs/nef.yaml
 sed -i 's|NRF_IP|'$NRF_IP'|g' install/etc/open5gs/nef.yaml
 sed -i 's|AF_IP|'$AF_IP'|g' install/etc/freeDiameter/nef.conf
+sed -i 's|DOCKER_HOST_IP|'$DOCKER_HOST_IP'|g' install/etc/freeDiameter/nef.conf
 sed -i 's|NEF_IP|'$NEF_IP'|g' install/etc/freeDiameter/nef.conf
 sed -i 's|EPC_DOMAIN|'$EPC_DOMAIN'|g' install/etc/freeDiameter/nef.conf
 sed -i 's|IMS_DOMAIN|'$IMS_DOMAIN'|g' install/etc/freeDiameter/nef.conf
