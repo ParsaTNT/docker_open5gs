@@ -2,6 +2,13 @@
 
 import socket, struct
 from time import sleep
+from optparse import OptionParser
+
+parser = OptionParser()
+parser.add_option("--discard-session-termination",
+                    action="store_false", dest="str", default=True)
+
+(options, args) = parser.parse_args()
 
 # -TODO: Implement the Capability Exchange Request
 
@@ -771,28 +778,28 @@ s.sendall(create_request(AAR_AVPs, Video_Breaer_Params, 265, 16777236, HopByHopI
 data = recvall(s)
 print('Video Bearer Creation Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
+if options.str:
+    print("Sleeping for 15 seconds so that the Core finishes the previous command and then going to terminate the sessions...")
+    sleep(15)
 
-print("Sleeping for 15 seconds so that the Core finishes the previous command and then going to terminate the sessions...")
-sleep(15)
 
+    s.sendall(create_request(STR_AVPs, Video_Breaer_Params, 275, 16777236, HopByHopId + 4, EndByEndId + 4))
+    data = recvall(s)
+    print('Video Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-s.sendall(create_request(STR_AVPs, Video_Breaer_Params, 275, 16777236, HopByHopId + 4, EndByEndId + 4))
-data = recvall(s)
-print('Video Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+    print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
+    sleep(7.5)
 
-print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-sleep(7.5)
+    s.sendall(create_request(STR_AVPs, Audio_Breaer_Params, 275, 16777236, HopByHopId + 5, EndByEndId + 5))
+    data = recvall(s)
+    print('Audio Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-s.sendall(create_request(STR_AVPs, Audio_Breaer_Params, 275, 16777236, HopByHopId + 5, EndByEndId + 5))
-data = recvall(s)
-print('Audio Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+    print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
+    sleep(7.5)
 
-print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-sleep(7.5)
-
-s.sendall(create_request(STR_AVPs, Control_Breaer_Params, 275, 16777236, HopByHopId + 6, EndByEndId + 6))
-data = recvall(s)
-print('Control Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+    s.sendall(create_request(STR_AVPs, Control_Breaer_Params, 275, 16777236, HopByHopId + 6, EndByEndId + 6))
+    data = recvall(s)
+    print('Control Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
 
 s.close()
