@@ -3,22 +3,37 @@
 import socket, struct
 from time import sleep
 from optparse import OptionParser
+import httpx
+from threading import Timer
+from copy import deepcopy
+import select
 
 parser = OptionParser()
-parser.add_option("--discard-session-termination",
-                    action="store_false", dest="str", default=True)
+parser.add_option("--send-session-termination",
+                    action="store_true", dest="str", default=False)
+parser.add_option("--send-abort-session",
+                    action="store_true", dest="asr", default=False)
 
 (options, args) = parser.parse_args()
 
 # -TODO: Implement the Capability Exchange Request
 
 AF_IP = "192.168.93.71"
-UE_IP = "192.168.101.3"
+UE_IP = "192.168.101.2"
 UE_IMSI = "001010000000031"
 SERVER = "172.22.0.39"
-PORT = 3868
+DIAMETER_PORT = 3868
+HTTP2_PORT = 7777
 
-def recvall(sock):
+def send_3_dwa(s):
+    global c
+    for _ in range(3):
+        s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+        c += 1
+        sleep(1)
+
+def recvall(sock, handle_dwr = True):
+    global c
     BUFF_SIZE = 4096 # 4 KiB
     data = b''
     while True:
@@ -27,7 +42,54 @@ def recvall(sock):
         if len(part) < BUFF_SIZE:
             # either 0 or end of data
             break
-    return data
+    if handle_dwr:
+        if int.from_bytes(data[1:4], byteorder="big") < len(data):
+            if int.from_bytes(data[5:8], byteorder="big") == 280:
+                s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+                c += 1
+                return data[int.from_bytes(data[1:4], byteorder="big"):]
+            else:
+                s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+                c += 1
+                return data[:int.from_bytes(data[1:4], byteorder="big")]
+        else:
+            if int.from_bytes(data[5:8], byteorder="big") == 280:
+                s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+                c += 1
+                return recvall(sock)
+            else:
+                return data
+    else:
+        return data
+
+watchdog_timer = None
+c = 0
+queue = []
+
+def answerDeviceWatchdogRequest():
+    global c
+    global watchdog_timer
+    global queue
+    global s
+    data = recvall(s, handle_dwr=False)
+    diameter_command_code = int.from_bytes(data[5:8], byteorder='big')
+    should_start = False
+    if diameter_command_code == 280:
+        s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+        c += 1
+        if watchdog_timer != None:
+            watchdog_timer.cancel()
+            watchdog_timer = Timer(0.1, answerDeviceWatchdogRequest)
+            should_start = True
+    else:
+        print("Received Other Diameter Request...")
+        if watchdog_timer != None:
+            watchdog_timer.cancel()
+            watchdog_timer = Timer(0.1, answerDeviceWatchdogRequest)
+            should_start = True
+        queue.append({"command_code": diameter_command_code, "data": data})
+    if should_start and watchdog_timer != None:
+        watchdog_timer.start()
 
 HopByHopId = 0x38266d96
 EndByEndId = 0x40cc0dec
@@ -585,7 +647,7 @@ AAR_AVPs = [
     },
 ]
 
-# CE-Request AVPs
+# ST-Request AVPs
 STR_AVPs = [
     {
         "name"          : "Session-Id",
@@ -685,6 +747,79 @@ STR_AVPs = [
     },
 ]
 
+# AS-Answer AVPs
+ASA_AVPs = [
+    {
+        "name"          : "Session-Id",
+        "code"          : 263,
+        "type"          : "session",
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "00",
+        "val"           : "dummy-af.ims.mnc001.mcc001.3gppnetwork.org;216870113;",
+    },
+    {
+        "name"          : "Origin-Host",
+        "code"          : 264,
+        "type"          : "string",
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "0000",
+        "val"           : "dummy-af.ims.mnc001.mcc001.3gppnetwork.org",
+    },
+    {
+        "name"          : "Origin-Realm",
+        "code"          : 296,
+        "type"          : "string",
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "000000",
+        "val"           : "ims.mnc001.mcc001.3gppnetwork.org",
+    },
+    {
+        "name"          : "Result-Code",
+        "code"          : 268,
+        "type"          : "number",
+        "val_len"       : 4,
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "",
+        "val"           : 2001,
+    },
+]
+
+# DW-Answer AVPs
+DWA_AVPs = [
+    {
+        "name"          : "Origin-Host",
+        "code"          : 264,
+        "type"          : "string",
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "0000",
+        "val"           : "dummy-af.ims.mnc001.mcc001.3gppnetwork.org",
+    },
+    {
+        "name"          : "Origin-Realm",
+        "code"          : 296,
+        "type"          : "string",
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "000000",
+        "val"           : "ims.mnc001.mcc001.3gppnetwork.org",
+    },
+    {
+        "name"          : "Result-Code",
+        "code"          : 268,
+        "type"          : "number",
+        "val_len"       : 4,
+        "header-extras" : "",
+        "flags"         : "40",
+        "padding"       : "",
+        "val"           : 2001,
+    },
+]
+
 # AAR Scenarios
 Control_Breaer_Params = {
     "Session-Id": 1,
@@ -754,53 +889,133 @@ Video_Breaer_Params = {
 }
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((SERVER, PORT))
+s.connect((SERVER, DIAMETER_PORT))
 
-s.sendall(create_request(CER_AVPs, dict(), 257, 0, HopByHopId, EndByEndId))
-data = recvall(s)
-print('CEA-Received', repr(data))
+s.sendall(create_request(CER_AVPs, dict(), 257, 0, HopByHopId + c, EndByEndId + c, flags=0x80))
+c += 1
+data = recvall(s, handle_dwr=False)
+print(f'CEA-Received (length: {int.from_bytes(data[1:4], byteorder="big")} == {len(data)})')
+if int.from_bytes(data[1:4], byteorder="big") < len(data):
+    s.sendall(create_request(DWA_AVPs, {}, 280, 16777236, HopByHopId + c, EndByEndId + c, flags=0x00))
+    c += 1
+    # send_3_dwa(s)
 
-s.sendall(create_request(AAR_AVPs, Control_Breaer_Params, 265, 16777236, HopByHopId + 1, EndByEndId + 1))
+# prev_timeout = s.timeout
+# s.settimeout(1)
+# data = recvall(s, handle_dwr=False)
+# if len(data):
+#     send_3_dwa(s)
+# s.settimeout(prev_timeout)
+
+s.sendall(create_request(AAR_AVPs, Control_Breaer_Params, 265, 16777236, HopByHopId + c, EndByEndId + c))
+c += 1
 data = recvall(s)
 print('Control Bearer Creation Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-sleep(7.5)
-
-s.sendall(create_request(AAR_AVPs, Audio_Breaer_Params, 265, 16777236, HopByHopId + 2, EndByEndId + 2))
+s.sendall(create_request(AAR_AVPs, Audio_Breaer_Params, 265, 16777236, HopByHopId + c, EndByEndId + c))
+c += 1
 data = recvall(s)
 print('Audio Bearer Creation Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-sleep(7.5)
-
-s.sendall(create_request(AAR_AVPs, Video_Breaer_Params, 265, 16777236, HopByHopId + 3, EndByEndId + 3))
+s.sendall(create_request(AAR_AVPs, Video_Breaer_Params, 265, 16777236, HopByHopId + c, EndByEndId + c))
+c += 1
 data = recvall(s)
 print('Video Bearer Creation Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
+watchdog_timer = Timer(0.1, answerDeviceWatchdogRequest)
+watchdog_timer.start()
+
 if options.str:
-    print("Sleeping for 15 seconds so that the Core finishes the previous command and then going to terminate the sessions...")
-    sleep(15)
+    sleep(0.2)
+    watchdog_timer.cancel()
+    prev_watchdog_timer = watchdog_timer
+    watchdog_timer = None
+    print("Waiting for a Watchdog...", flush=True, end="")
+    while prev_watchdog_timer.is_alive():
+        sleep(.1)
+    print()
 
-
-    s.sendall(create_request(STR_AVPs, Video_Breaer_Params, 275, 16777236, HopByHopId + 4, EndByEndId + 4))
+    s.sendall(create_request(STR_AVPs, Video_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+    c += 1
     data = recvall(s)
     print('Video Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-    print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-    sleep(7.5)
-
-    s.sendall(create_request(STR_AVPs, Audio_Breaer_Params, 275, 16777236, HopByHopId + 5, EndByEndId + 5))
+    s.sendall(create_request(STR_AVPs, Audio_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+    c += 1
     data = recvall(s)
     print('Audio Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
 
-    print("Sleeping for 7.5 seconds so that the Core finishes the previous command...")
-    sleep(7.5)
-
-    s.sendall(create_request(STR_AVPs, Control_Breaer_Params, 275, 16777236, HopByHopId + 6, EndByEndId + 6))
+    s.sendall(create_request(STR_AVPs, Control_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+    c += 1
     data = recvall(s)
     print('Control Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+elif options.asr:
+    while True:
+        o = input("Insert the session number of PCF that you want to terminate or insert 'q' to stop: ")
+        if o == 'q':
+            break
+        session_id = int(o.split()[0])
+        session_type = o.split()[1]
+        with httpx.Client(http1=False, http2=True) as client:
+            res = client.post(
+                f"http://{SERVER}:{HTTP2_PORT}/npcf-policyauthorization/v1/app-sessions/{session_id}/terminate",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "termCause": "PDU_SESSION_TERMINATION",
+                    "resUri": f"http://{AF_IP}:7777/huh"
+                },
+            )
+            print("Received code", res.status_code)
 
+            if res.status_code != 200 and res.status_code != 204:
+                raise RuntimeError("HTTP2 Request not successful")
+        
+        watchdog_timer.cancel()
+        watchdog_timer = None
+
+        if len(queue) == 0:
+            data = recvall(s)
+            diameter_command_code = int.from_bytes(data[5:8], byteorder='big')
+        else:
+            data = queue[-1]["data"]
+            diameter_command_code = queue[-1]["command_code"]
+
+        if diameter_command_code == 274: 
+            if session_type == "Video":
+                print("Sending Abort Session Answer...")
+                s.sendall(create_request(ASA_AVPs, Video_Breaer_Params, 274, 16777236, HopByHopId + c, EndByEndId + c, flags=0x40))
+                c += 1
+                print("Sending Video Session Termination...")
+                s.sendall(create_request(STR_AVPs, Video_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+                c += 1
+                data = recvall(s)
+                print('Video Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+            elif session_type == "Audio":
+                print("Sending Abort Session Answer...")
+                s.sendall(create_request(ASA_AVPs, Audio_Breaer_Params, 274, 16777236, HopByHopId + c, EndByEndId + c, flags=0x40))
+                c += 1
+                print("Sending Audio Session Termination...")
+                s.sendall(create_request(STR_AVPs, Audio_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+                c += 1
+                data = recvall(s)
+                print('Audio Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+            elif session_type == "Control":
+                print("Sending Abort Session Answer...")
+                s.sendall(create_request(ASA_AVPs, Control_Breaer_Params, 274, 16777236, HopByHopId + c, EndByEndId + c, flags=0x40))
+                c += 1
+                print("Sending Control Session Termination...")
+                s.sendall(create_request(STR_AVPs, Control_Breaer_Params, 275, 16777236, HopByHopId + c, EndByEndId + c))
+                c += 1
+                data = recvall(s)
+                print('Control Session Termination Status Received:', int.from_bytes(data[-4:], byteorder='big'))
+            else:
+                s.close()
+                raise ValueError(f"Unkown sesstion type [{session_type}]")
+        else:
+            s.close()
+            raise ValueError(f"Unkown Diameter command code [{diameter_command_code}]")
+
+        watchdog_timer = Timer(0.1, answerDeviceWatchdogRequest)
 
 s.close()
 
