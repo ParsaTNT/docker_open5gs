@@ -195,7 +195,7 @@ services:
       default:
         ipv4_address: ${UPF_IP}
   amf:
-    image: docker_open5gs
+    image: docker_open5gs:amf-redis
     depends_on:
       - nrf
       - scp

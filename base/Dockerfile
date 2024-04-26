@@ -58,7 +58,10 @@ RUN apt-get update && \
         libnghttp2-dev \
         libtins-dev \
         libidn11-dev \
-        libtalloc-dev
+        libtalloc-dev \
+        wget \
+        zip \
+        unzip
 
 RUN mkdir -p /etc/apt/keyrings
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
@@ -66,14 +69,26 @@ RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg -
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && apt install nodejs -y
 
+RUN wget -qO- "https://cmake.org/files/v3.17/cmake-3.17.0-Linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+
+RUN cd /tmp/ && wget https://github.com/redis/hiredis/archive/refs/tags/v1.2.0.zip && \
+    unzip v1.2.0.zip && \
+    cd hiredis-1.2.0/ && \
+    mkdir build && cd build && \
+    cmake .. && make -j $(nproc) && \
+    make install && ldconfig
+
+# Building WebUI of open5gs
+COPY open5gs/webui open5gs/webui
+RUN cd open5gs/webui && npm ci
+
+COPY open5gs open5gs
 # Get open5gs code and install
-RUN git clone --recursive https://github.com/open5gs/open5gs && cd open5gs && \
-    git checkout 322719f3e729aafacf531e85552d7a977fff3e2a && meson build --prefix=`pwd`/install && \
+RUN cd open5gs && \
+    meson build --prefix=`pwd`/install && \
     ninja -C build && cd build && ninja install && \
     mkdir -p /open5gs/install/include
 
-# Building WebUI of open5gs
-RUN cd open5gs/webui && npm ci
 
 # Build final image
 FROM ubuntu:focal
@@ -103,7 +118,11 @@ RUN apt-get update && \
         iptables \
         iperf \
         mongodb-clients \
-        gnupg && \
+        gnupg  \
+        wget \
+        zip \
+        unzip \
+        build-essential && \
     apt-get autoremove -y && apt-get autoclean
 
 RUN pip3 install click
@@ -113,6 +132,15 @@ RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg -
     NODE_MAJOR=20 && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
     apt-get update && apt install nodejs -y
+
+RUN wget -qO- "https://cmake.org/files/v3.17/cmake-3.17.0-Linux-x86_64.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+
+RUN cd /tmp/ && wget https://github.com/redis/hiredis/archive/refs/tags/v1.2.0.zip && \
+    unzip v1.2.0.zip && \
+    cd hiredis-1.2.0/ && \
+    mkdir build && cd build && \
+    cmake .. && make -j $(nproc) && \
+    make install && ldconfig
 
 RUN update-ca-certificates
 
@@ -124,7 +152,7 @@ COPY --from=builder /open5gs/webui /open5gs/webui
 COPY --from=builder /open5gs/misc/db /open5gs/misc/db
 
 # Set the working directory to open5gs
-WORKDIR open5gs
+WORKDIR /open5gs
 
 COPY open5gs_init.sh /
 CMD /open5gs_init.sh
